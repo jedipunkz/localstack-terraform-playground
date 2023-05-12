@@ -14,6 +14,10 @@ type Item struct {
 	Data string `json:"data"`
 }
 
+type DynamoDBClient struct {
+	svc *dynamodb.DynamoDB
+}
+
 func main() {
 	sess, err := createSession("http://localhost:4566", "us-east-1")
 	if err != nil {
@@ -21,10 +25,10 @@ func main() {
 		return
 	}
 
-	svc := dynamodb.New(sess)
+	client := DynamoDBClient{svc: dynamodb.New(sess)}
 
 	tableName := "SampleTable"
-	err = createTable(svc, tableName)
+	err = client.createTable(tableName)
 	if err != nil {
 		fmt.Println("Error creating table,", err)
 	}
@@ -33,24 +37,21 @@ func main() {
 		ID:   "1",
 		Data: "Sample Data",
 	}
-	err = putItem(svc, tableName, item)
+	err = client.putItem(tableName, item)
 	if err != nil {
 		fmt.Println("Error putting item,", err)
 		return
 	}
 
-	itemData, err := getItem(svc, tableName, "1")
+	items, err := client.getAllItems(tableName)
 	if err != nil {
-		fmt.Println("Error getting item,", err)
+		fmt.Println("Error getting items,", err)
 		return
 	}
 
-	fmt.Println("Item data:", itemData)
-
-	err = listTables(svc)
-	if err != nil {
-		fmt.Println("Error listing tables,", err)
-		return
+	fmt.Println("Items:")
+	for _, item := range items {
+		fmt.Println(item)
 	}
 }
 
@@ -61,14 +62,14 @@ func createSession(endpoint, region string) (*session.Session, error) {
 	})
 }
 
-func createTable(svc *dynamodb.DynamoDB, tableName string) error {
-	_, err := svc.DescribeTable(&dynamodb.DescribeTableInput{
+func (client *DynamoDBClient) createTable(tableName string) error {
+	_, err := client.svc.DescribeTable(&dynamodb.DescribeTableInput{
 		TableName: aws.String(tableName),
 	})
 
 	// If table does not exist, create it
 	if err != nil {
-		_, err = svc.CreateTable(&dynamodb.CreateTableInput{
+		_, err = client.svc.CreateTable(&dynamodb.CreateTableInput{
 			AttributeDefinitions: []*dynamodb.AttributeDefinition{
 				{
 					AttributeName: aws.String("id"),
@@ -92,13 +93,13 @@ func createTable(svc *dynamodb.DynamoDB, tableName string) error {
 	return err
 }
 
-func putItem(svc *dynamodb.DynamoDB, tableName string, item Item) error {
+func (client *DynamoDBClient) putItem(tableName string, item Item) error {
 	av, err := dynamodbattribute.MarshalMap(item)
 	if err != nil {
 		return err
 	}
 
-	_, err = svc.PutItem(&dynamodb.PutItemInput{
+	_, err = client.svc.PutItem(&dynamodb.PutItemInput{
 		Item:      av,
 		TableName: aws.String(tableName),
 	})
@@ -106,34 +107,16 @@ func putItem(svc *dynamodb.DynamoDB, tableName string, item Item) error {
 	return err
 }
 
-func getItem(svc *dynamodb.DynamoDB, tableName, id string) (Item, error) {
-	result, err := svc.GetItem(&dynamodb.GetItemInput{
+func (client *DynamoDBClient) getAllItems(tableName string) ([]Item, error) {
+	result, err := client.svc.Scan(&dynamodb.ScanInput{
 		TableName: aws.String(tableName),
-		Key: map[string]*dynamodb.AttributeValue{
-			"id": {
-				S: aws.String(id),
-			},
-		},
 	})
 	if err != nil {
-		return Item{}, err
+		return nil, err
 	}
 
-	item := Item{}
-	err = dynamodbattribute.UnmarshalMap(result.Item, &item)
-	return item, err
-}
+	items := []Item{}
+	err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &items)
 
-func listTables(svc *dynamodb.DynamoDB) error {
-	result, err := svc.ListTables(&dynamodb.ListTablesInput{})
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("Tables:")
-	for _, table := range result.TableNames {
-		fmt.Println(*table)
-	}
-
-	return nil
+	return items, err
 }
