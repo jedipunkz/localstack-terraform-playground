@@ -1,5 +1,11 @@
 # localstack-terraform-playground
 
+## Start localstack
+
+```shell
+docker-compose up -d localstack
+```
+
 ## Create DynamoDB table for locking tfstate
 
 ```shell
